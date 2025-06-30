@@ -186,7 +186,7 @@ def process_reel(
         time.sleep(0.2)
 
     # --- Exit Reel View ---
-    verify_xpath = insta_actions.xpath_config.reel_like_or_unlike_button()
+    verify_xpath = insta_actions.xpath_config.reel_like_or_unlike_button
     insta_actions.navigate_back_from_reel(verify_xpath=verify_xpath)
     random_delay("back_delay")
 
@@ -198,7 +198,7 @@ def perform_keyword_search(insta_actions: InstagramInteractions, keyword: str) -
     """Performs a keyword search on the Explore page."""
     logger.info(f"🔍 Performing keyword search: {keyword}")
     xpath_config = insta_actions.xpath_config
-    typer = StealthTyper(device_id=insta_actions.device.serial)
+    typer = StealthTyper(device=insta_actions.device)
 
     try:
         search_xpath = xpath_config.explore_search_bar
@@ -216,7 +216,7 @@ def perform_keyword_search(insta_actions: InstagramInteractions, keyword: str) -
         time.sleep(random.uniform(2.5, 4.0))
 
         logger.info("↕️ Scrolling down slightly to reveal posts...")
-        insta_actions.scroll_up_humanlike()
+        insta_actions.scroll_up_robust()
         time.sleep(random.uniform(1.0, 1.5))
 
         if not insta_actions.wait_for_element_appear(
@@ -234,7 +234,7 @@ def perform_keyword_search(insta_actions: InstagramInteractions, keyword: str) -
 
 
 def run_warmup_session(insta_actions: InstagramInteractions):
-    """Runs the main warmup/scrolling session logic."""
+    """Runs the main warmup/scrolling session logic with robust state management."""
     seen_hashes = set()
     all_reels_processed_info = []
 
@@ -276,6 +276,44 @@ def run_warmup_session(insta_actions: InstagramInteractions):
             break
 
         logger.info(f"--- Scroll iteration {i + 1}/{ScrollerConfig.MAX_SCROLLS} ---")
+
+        # --- STATE CHECK & RECOVERY BLOCK ---
+        current_state = insta_actions.get_current_view_state()
+
+        if current_state == "IN_PEEK_VIEW":
+            logger.warning(
+                "🫣 State check: Caught in a 'Peek View'. Pressing back to escape."
+            )
+            insta_actions.device.press("back")
+            random_delay("back_delay")
+            continue
+
+        elif current_state == "IN_REEL":
+            logger.warning(
+                "🚨 State check: Detected we are inside a reel unexpectedly. Navigating back."
+            )
+            insta_actions.navigate_back_from_reel()
+            random_delay("back_delay")
+            continue
+
+        elif current_state == "ON_HOME_FEED":
+            logger.warning(
+                "↩️ State check: On Home Feed. Navigating back to Explore page."
+            )
+            insta_actions.click_by_xpath(insta_actions.xpath_config.nav_explore_tab)
+            random_delay("after_post_tap")
+            continue
+
+        elif current_state == "UNKNOWN":
+            logger.error(
+                "🚫 State check: Screen is in an unknown state. Attempting generic back press to recover."
+            )
+            insta_actions.device.press("back")
+            random_delay("back_delay")
+            continue
+        # --- END OF STATE CHECK ---
+
+        # If we passed the checks, we are ON_EXPLORE_GRID, so it's safe to proceed.
         new_reels = [
             r
             for r in extract_search_page_reels(insta_actions)
@@ -297,7 +335,7 @@ def run_warmup_session(insta_actions: InstagramInteractions):
 
         for reel_data in reels_to_process:
             if time.time() - start_time > ScrollerConfig.MAX_RUNTIME_SECONDS:
-                break  # Break inner loop if time is up
+                break
 
             logger.info(
                 f"🎬 Processing reel [{reel_data['short_id']}] by @{reel_data['username']}"
@@ -365,22 +403,3 @@ def run_warmup_for_account(username: str, device_id: str, package_name: str):
         if insta_actions:
             insta_actions.close_app()
         logger.info(f"--- Finished processing for @{username} ---")
-
-
-if __name__ == "__main__":
-    """This block is for standalone testing purposes."""
-    logger.info("--- Scroller script running in standalone test mode ---")
-
-    TEST_USERNAME = "TestUser"
-    TEST_DEVICE_ID = "R5CR7027Y7W"
-    TEST_PACKAGE_NAME = "com.instagram.androip"
-
-    if "your_device_id" in TEST_DEVICE_ID:
-        logger.error("Please set TEST_DEVICE_ID for testing.")
-    else:
-        # To test, ensure the app is already open and logged in on the device.
-        run_warmup_for_account(
-            username=TEST_USERNAME,
-            device_id=TEST_DEVICE_ID,
-            package_name=TEST_PACKAGE_NAME,
-        )

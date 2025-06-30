@@ -26,6 +26,7 @@ class ScrollerConfig:
         "default": [1.0, 2.0],
     }
     MAX_SCROLLS = 100
+    MAX_RUNTIME_SECONDS = 180
     PERCENT_REELS_TO_WATCH = 0.8
     WATCH_TIME_RANGE = [4.0, 9.0]
     LIKE_PROBABILITY = 0.7
@@ -241,6 +242,10 @@ class XpathConfig:
 
     def search_reel_imageview_template(self, desc):
         return f'//android.widget.ImageView[@content-desc="{desc}"]'
+
+    @property
+    def peek_view_container(self):
+        return f"//*[@resource-id='{self.package_name}:id/peek_container']"
 
     # --- In-Reel Viewing (Scroller) ---
     @property

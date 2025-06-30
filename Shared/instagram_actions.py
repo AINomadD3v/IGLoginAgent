@@ -79,6 +79,39 @@ class InstagramInteractions:
             self.logger.error(f"❌ Failed to stop app {pkg}: {e}", exc_info=True)
             return False
 
+    def get_current_view_state(self) -> str:
+        """
+        Determines the current view state of the app by checking for unique
+        "landmark" elements in a specific order of priority.
+
+        Returns: "IN_PEEK_VIEW", "IN_REEL", "ON_EXPLORE_GRID", "ON_HOME_FEED", or "UNKNOWN".
+        """
+        self.logger.debug("Checking current view state...")
+
+        # Priority 1: Check for overlays first (Peek View).
+        if self.element_exists(self.xpath_config.peek_view_container):
+            self.logger.debug("State detected: IN_PEEK_VIEW")
+            return "IN_PEEK_VIEW"
+
+        # Priority 2: Check for the full Reel viewer.
+        if self.element_exists(self.xpath_config.reel_like_or_unlike_button):
+            self.logger.debug("State detected: IN_REEL")
+            return "IN_REEL"
+
+        # Priority 3: Check if we're on the search results grid.
+        if self.element_exists(self.xpath_config.explore_search_bar):
+            self.logger.debug("State detected: ON_EXPLORE_GRID")
+            return "ON_EXPLORE_GRID"
+
+        # Priority 4: Check if we've returned to the main home feed.
+        if self.element_exists(self.xpath_config.home_feed_identifier):
+            self.logger.debug("State detected: ON_HOME_FEED")
+            return "ON_HOME_FEED"
+
+        # Fallback: If none of the above landmarks are found.
+        self.logger.warning("State detected: UNKNOWN")
+        return "UNKNOWN"
+
     # --- Element Interaction Primitives ---
 
     def wait_for_element_appear(self, xpath: str, timeout: int = 10) -> bool:
@@ -159,6 +192,23 @@ class InstagramInteractions:
         duration = random.randint(300, 600)
 
         self._curved_swipe((x, y_start), (x, y_end), duration, intensity)
+
+    # Shared/instagram_actions.py (Inside InstagramInteractions class)
+
+    def scroll_up_robust(self):
+        """
+        Performs a robust, direct scroll up the screen using the core swipe method.
+        This is less "human" but more reliable and less prone to being mis-read as a long-press.
+        """
+        self.logger.debug("Performing ROBUST scroll up...")
+        width, height = self.device.window_size()
+        # Define a clear start and end point in the middle of the screen
+        x_coord = width / 2
+        y_start = height * 0.8  # Start lower
+        y_end = height * 0.2  # End higher
+
+        # Use the basic, reliable swipe method. Duration is in seconds.
+        self.device.swipe(x_coord, y_start, x_coord, y_end, duration=0.5)
 
     def _tap_random_in_bounds(
         self, bounds: dict, label: str = "element", offset: int = 8
