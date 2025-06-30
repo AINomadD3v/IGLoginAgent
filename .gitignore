@@ -1,0 +1,111 @@
+# .gitignore
+
+# --- Python ---
+# Byte-compiled / optimized / C-extensions
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+#  Usually these files are created by pyinstaller, if you are using it.
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# --- Environment ---
+# Virtual environment folders
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment variables file
+# CRITICAL: Contains sensitive credentials like API keys and passwords.
+.env
+
+# --- Configuration Files ---
+# Ignore the old YAML config file if it still exists.
+config.yaml
+
+# --- IDEs and Editors ---
+# Visual Studio Code
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# JetBrains (PyCharm)
+.idea/
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Neovim
+.neovim/
+.nvim/
+
+# --- Nix Environment ---
+# Nix build results and direnv cache
+result
+.direnv/
+
+# --- Project-Specific ---
+# Log files
+*.log
+
+# Screenshots generated on error
+*.png
+*.jpg
+*.jpeg
+
+# Temporary media files
+temp_media/
+
+# flake.lock should be committed, but if you want to ignore it:
+# flake.lock
+
+
