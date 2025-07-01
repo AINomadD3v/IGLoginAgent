@@ -281,7 +281,7 @@ def run_warmup_session(insta_actions: InstagramInteractions):
             logger.warning(
                 "🚨 State check: Detected we are inside a reel unexpectedly. Navigating back."
             )
-            insta_actions.navigate_back_from_reel()
+            insta_actions.ensure_back_to_explore_grid()
             random_delay("back_delay")
             continue
 

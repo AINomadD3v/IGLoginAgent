@@ -16,13 +16,13 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-# --- Refactored Imports ---
-from get_imap_code import get_instagram_verification_code
-from nord import main_flow as rotate_nordvpn_ip
-
 from Shared.config import XpathConfig
 from Shared.Data.airtable_manager import AirtableClient
+
+# --- Refactored Imports ---
+from Shared.get_imap_code import get_instagram_verification_code
 from Shared.instagram_actions import InstagramInteractions
+from Shared.nord import main_flow as rotate_nordvpn_ip
 from Shared.popup_handler import PopupHandler
 from Shared.Utils.logger_config import setup_logger
 from Shared.Utils.stealth_typing import StealthTyper
@@ -321,7 +321,7 @@ if __name__ == "__main__":
         time.sleep(5)
 
         interactions = InstagramInteractions(device=d, app_package=PACKAGE_NAME)
-        typer = StealthTyper(device_id=d.serial)
+        typer = StealthTyper(device=d)
         login_handler = InstagramLoginHandler(
             device=d,
             interactions=interactions,
