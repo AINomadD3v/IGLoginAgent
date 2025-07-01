@@ -50,68 +50,57 @@ def random_delay(label: str):
 
 
 def extract_search_page_reels(insta_actions: InstagramInteractions) -> list[dict]:
-    """Extracts reel information from the search/explore results page."""
+    """
+    Extracts reel information from the search page by directly finding elements
+    that are explicitly identified as Reels based on their content description.
+    """
     reels = []
     seen_this_screen = set()
     device = insta_actions.device
-    xpath_config = insta_actions.xpath_config
 
     try:
-        # This logic remains the same, but the xpaths are now from our unified config
-        containers = device.xpath(xpath_config.search_layout_container_frame).all()
-        logger.info(
-            f"Found {len(containers)} potential layout containers on search page"
+        # This is the reliable, direct XPath that correctly identifies only Reels.
+        reel_elements_xpath = (
+            "//android.widget.ImageView[contains(@content-desc, 'Reel by')]"
         )
+        reel_elements = device.xpath(reel_elements_xpath).all()
 
-        for container in containers:
+        logger.info(f"Found {len(reel_elements)} potential Reels on screen.")
+
+        for reel_el in reel_elements:
             try:
-                container_xpath = container.get_xpath()
+                iv_info = reel_el.info
+                desc = iv_info.get("contentDescription", "").strip()
+                bounds = iv_info.get("bounds")
 
-                # Skip image posts with 'photos by' button
-                full_bad_btns_xpath = (
-                    container_xpath + xpath_config.search_image_post_button
-                )
-                if device.xpath(full_bad_btns_xpath).exists:
-                    logger.debug("Skipping image post (found 'photos by' button)")
+                if not desc or not bounds:
                     continue
 
-                # Find reel ImageViews within this container
-                full_reels_iv_xpath = (
-                    container_xpath + xpath_config.search_reel_imageview
-                )
-                ivs = device.xpath(full_reels_iv_xpath).all()
+                if desc in seen_this_screen:
+                    continue
+                seen_this_screen.add(desc)
 
-                for iv in ivs:
-                    iv_info = iv.info
-                    desc = iv_info.get("contentDescription", "").strip()
-                    bounds = iv_info.get("bounds")
+                key = hashlib.sha1(desc.encode("utf-8")).hexdigest()
+                try:
+                    username = desc.split("by", 1)[1].split("at", 1)[0].strip()
+                except IndexError:
+                    logger.warning(f"Could not parse username from desc: {desc}")
+                    username = "unknown"
 
-                    if not desc or not bounds or "Reel by" not in desc:
-                        continue
-
-                    if desc in seen_this_screen:
-                        continue
-                    seen_this_screen.add(desc)
-
-                    key = hashlib.sha1(desc.encode("utf-8")).hexdigest()
-                    try:
-                        username = desc.split("by", 1)[1].split("at", 1)[0].strip()
-                    except IndexError:
-                        logger.warning(f"Could not parse username from desc: {desc}")
-                        username = "unknown"
-
-                    bounds_str = f"[{bounds.get('left', 0)},{bounds.get('top', 0)}][{bounds.get('right', 0)},{bounds.get('bottom', 0)}]"
-                    post = {
-                        "id": key,
-                        "short_id": key[:7],
-                        "username": username,
-                        "desc": desc,
-                        "bounds": bounds_str,
-                    }
-                    logger.info(f"[{post['short_id']}] ✅ Extracted Reel | @{username}")
-                    reels.append(post)
+                bounds_str = f"[{bounds.get('left', 0)},{bounds.get('top', 0)}][{bounds.get('right', 0)},{bounds.get('bottom', 0)}]"
+                post = {
+                    "id": key,
+                    "short_id": key[:7],
+                    "username": username,
+                    "desc": desc,
+                    "bounds": bounds_str,
+                }
+                logger.info(f"[{post['short_id']}] ✅ Extracted Reel | @{username}")
+                reels.append(post)
             except Exception as e:
-                logger.warning(f"⚠️ Failed to parse a container: {e}", exc_info=False)
+                logger.warning(
+                    f"⚠️ Failed to parse a specific reel element: {e}", exc_info=False
+                )
                 continue
     except Exception as outer_e:
         logger.error(
@@ -187,7 +176,7 @@ def process_reel(
 
     # --- Exit Reel View ---
     verify_xpath = insta_actions.xpath_config.reel_like_or_unlike_button
-    insta_actions.navigate_back_from_reel(verify_xpath=verify_xpath)
+    insta_actions.ensure_back_to_explore_grid()
     random_delay("back_delay")
 
     # This functionality to return data is preserved, even if not used in the main loop
@@ -216,7 +205,7 @@ def perform_keyword_search(insta_actions: InstagramInteractions, keyword: str) -
         time.sleep(random.uniform(2.5, 4.0))
 
         logger.info("↕️ Scrolling down slightly to reveal posts...")
-        insta_actions.scroll_up_robust()
+        insta_actions.scroll_explore_feed_proactive()
         time.sleep(random.uniform(1.0, 1.5))
 
         if not insta_actions.wait_for_element_appear(
@@ -322,7 +311,7 @@ def run_warmup_session(insta_actions: InstagramInteractions):
 
         if not new_reels:
             logger.info("🔁 No new reels found, scrolling up...")
-            insta_actions.scroll_up_humanlike()
+            insta_actions.scroll_explore_feed_proactive()
             random_delay("between_scrolls")
             continue
 
@@ -354,7 +343,7 @@ def run_warmup_session(insta_actions: InstagramInteractions):
                 next_idle_at = random.randint(idle_min, idle_max)
 
         random_delay("before_scroll")
-        insta_actions.scroll_up_humanlike()
+        insta_actions.scroll_explore_feed_proactive()
         random_delay("between_scrolls")
 
     # --- Session End Summary ---

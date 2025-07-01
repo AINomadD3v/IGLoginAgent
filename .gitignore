@@ -104,6 +104,7 @@ result
 
 # Temporary media files
 temp_media/
+current_ui_dump.xml
 
 # flake.lock should be committed, but if you want to ignore it:
 # flake.lock

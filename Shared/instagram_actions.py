@@ -35,6 +35,31 @@ class InstagramInteractions:
         # The SwipeHelper is no longer needed as its methods are now part of this class.
 
     # --- App Management ---
+    def _scroll_feed_flick(self):
+        """
+        Performs a reliable, human-like "flick" gesture to scroll up the feed.
+        This uses the simple device.swipe() command with randomized, fast parameters
+        to be unambiguous and prevent misinterpretation as a tap.
+        """
+        self.logger.info("🌀 Performing scroll flick...")
+        width, height = self.device.window_size()
+
+        # Define a central, vertical corridor for the swipe to avoid edges.
+        # Start in the bottom 70-85% of the screen.
+        start_x = random.uniform(width * 0.4, width * 0.6)
+        start_y = random.uniform(height * 0.70, height * 0.85)
+
+        # End in the top 15-30% of the screen.
+        # Add slight horizontal drift to the x-coordinate to make it less robotic.
+        end_x = start_x + random.uniform(-width * 0.05, width * 0.05)
+        end_y = random.uniform(height * 0.15, height * 0.30)
+
+        # **CRITICAL FIX:** Use a short duration for a "flick", not a "drag".
+        # A duration between 100ms and 250ms is fast enough to be registered
+        # as a single, continuous swipe gesture by the Android UI.
+        duration_s = random.uniform(0.1, 0.25)
+
+        self.device.swipe(start_x, start_y, end_x, end_y, duration=duration_s)
 
     def close_app(self) -> bool:
         """Stops the app cleanly, with a fallback to ADB force-stop."""
@@ -83,12 +108,14 @@ class InstagramInteractions:
         """
         Determines the current view state of the app by checking for unique
         "landmark" elements in a specific order of priority.
-
-        Returns: "IN_PEEK_VIEW", "IN_REEL", "ON_EXPLORE_GRID", "ON_HOME_FEED", or "UNKNOWN".
         """
         self.logger.debug("Checking current view state...")
 
-        # Priority 1: Check for overlays first (Peek View).
+        # Priority 1: Check for the most specific overlays first (Comments, Peek View).
+        if self.element_exists(self.xpath_config.reel_comment_input_field):
+            self.logger.debug("State detected: IN_COMMENTS_VIEW")
+            return "IN_COMMENTS_VIEW"
+
         if self.element_exists(self.xpath_config.peek_view_container):
             self.logger.debug("State detected: IN_PEEK_VIEW")
             return "IN_PEEK_VIEW"
@@ -108,7 +135,7 @@ class InstagramInteractions:
             self.logger.debug("State detected: ON_HOME_FEED")
             return "ON_HOME_FEED"
 
-        # Fallback: If none of the above landmarks are found.
+        # Fallback
         self.logger.warning("State detected: UNKNOWN")
         return "UNKNOWN"
 
@@ -182,33 +209,31 @@ class InstagramInteractions:
         )
         self.device.swipe_points(path, duration_ms / 1000.0)
 
-    def scroll_up_humanlike(self, intensity="medium"):
-        """Performs a human-like scroll up the screen (i.e., a downward swipe)."""
-        self.logger.debug("Performing human-like scroll up...")
-        width, height = self.device.window_size()
-        x = random.randint(int(width * 0.45), int(width * 0.55))
-        y_start = random.randint(int(height * 0.65), int(height * 0.75))
-        y_end = random.randint(int(height * 0.25), int(height * 0.35))
-        duration = random.randint(300, 600)
-
-        self._curved_swipe((x, y_start), (x, y_end), duration, intensity)
-
-    # Shared/instagram_actions.py (Inside InstagramInteractions class)
-
-    def scroll_up_robust(self):
+    def scroll_explore_feed_proactive(self) -> bool:
         """
-        Performs a robust, direct scroll up the screen using the core swipe method.
-        This is less "human" but more reliable and less prone to being mis-read as a long-press.
+        The definitive, high-precision scrolling method.
+        1.  **Proactively checks** if the UI is in the correct state.
+        2.  **Blocks the scroll** if the state is wrong, preventing errors.
+        3.  **Delegates** to the internal flick gesture if safe.
+        Returns:
+            bool: True if the scroll was performed, False if it was blocked.
         """
-        self.logger.debug("Performing ROBUST scroll up...")
-        width, height = self.device.window_size()
-        # Define a clear start and end point in the middle of the screen
-        x_coord = width / 2
-        y_start = height * 0.8  # Start lower
-        y_end = height * 0.2  # End higher
-
-        # Use the basic, reliable swipe method. Duration is in seconds.
-        self.device.swipe(x_coord, y_start, x_coord, y_end, duration=0.5)
+        current_state = self.get_current_view_state()
+        if current_state != "ON_EXPLORE_GRID":
+            self.logger.warning(
+                f"⚠️ Scroll blocked: Attempted to scroll while in an invalid state ('{current_state}')."
+            )
+            return False
+        try:
+            # Call the new, reliable internal flick method.
+            self._scroll_feed_flick()
+            return True
+        except Exception as e:
+            self.logger.error(
+                f"❌ An unexpected error occurred during the scroll gesture: {e}",
+                exc_info=True,
+            )
+            return False
 
     def _tap_random_in_bounds(
         self, bounds: dict, label: str = "element", offset: int = 8
@@ -318,7 +343,7 @@ class InstagramInteractions:
         time.sleep(random.uniform(1.5, 2.5))
 
         # Scroll up slightly in the comments
-        self.scroll_up_humanlike(intensity="gentle")
+        self.scroll_explore_feed_proactive()
         time.sleep(random.uniform(1.0, 2.0))
 
         self.logger.debug("Pressing back to close comments.")
@@ -334,27 +359,40 @@ class InstagramInteractions:
             self.device.press("back")
             return False
 
-    def navigate_back_from_reel(self, verify_xpath: Optional[str] = None) -> bool:
-        """Navigates back from a full-screen reel view."""
-        self.logger.info("Attempting to navigate back from reel view...")
+    def ensure_back_to_explore_grid(self) -> bool:
+        """
+        A robust navigation function that attempts to return to the explore grid
+        from any known state (Reel, Comments, etc.). It will press 'back'
+        until it verifies it has landed on the explore grid.
+        This function is designed to be the definitive way to exit nested views.
+        """
+        self.logger.info("Ensuring navigation back to the explore grid...")
 
-        # Prefer the explicit back button if it exists, otherwise use system back
-        if self.click_by_xpath(self.xpath_config.nav_back_button, timeout=1):
-            self.logger.info("Clicked explicit 'Back' button.")
-        else:
-            self.logger.info(
-                "No explicit 'Back' button found, using system back press."
-            )
-            self.device.press("back")
+        # We will try up to 4 times to get back. This prevents an infinite loop.
+        for attempt in range(4):
+            # First, check what screen we're on
+            current_state = self.get_current_view_state()
 
-        time.sleep(random.uniform(1.0, 1.5))
-
-        if verify_xpath:
-            if self.wait_for_element_vanish(verify_xpath, timeout=5):
-                self.logger.info("✅ Exited reel view (verified).")
+            # If we are on the correct screen, our job is done.
+            if current_state == "ON_EXPLORE_GRID":
+                self.logger.info("✅ Successfully navigated back to the explore grid.")
                 return True
-            else:
-                self.logger.error("❌ Failed to verify exit from reel view.")
-                return False
 
-        return True  # Assume success if no verification XPath is provided
+            # If we are not on the correct screen, log where we are and press back.
+            self.logger.warning(
+                f"Not on explore grid (currently: {current_state}). Pressing back... (Attempt {attempt + 1}/4)"
+            )
+
+            # Use the explicit back button if available, otherwise use the system back.
+            # This is more robust than only using the system back press.
+            if not self.click_by_xpath(self.xpath_config.nav_back_button, timeout=1):
+                self.device.press("back")
+
+            # Wait for the UI to settle after the action
+            time.sleep(random.uniform(1.5, 2.2))
+
+        # If the loop finishes without returning, it means we failed to get back.
+        self.logger.error(
+            "❌ Failed to navigate back to explore grid after multiple attempts."
+        )
+        return False

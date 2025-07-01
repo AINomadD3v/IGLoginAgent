@@ -281,3 +281,9 @@ class XpathConfig:
     @property
     def reel_like_or_unlike_button(self):
         return '//*[@content-desc="Like" or @content-desc="Unlike"]'
+
+    @property
+    def reel_comment_input_field(self):
+        return (
+            f"//*[@resource-id='{self.package_name}:id/layout_comment_thread_edittext']"
+        )
