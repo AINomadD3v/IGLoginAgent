@@ -17,13 +17,13 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from Shared.config import XpathConfig
-from Shared.Data.airtable_manager import AirtableClient
 
 # --- Refactored Imports ---
 from Shared.get_imap_code import get_instagram_verification_code
 from Shared.instagram_actions import InstagramInteractions
 from Shared.nord import main_flow as rotate_nordvpn_ip
 from Shared.popup_handler import PopupHandler
+from Shared.Utils.airtable_manager import AirtableClient
 from Shared.Utils.logger_config import setup_logger
 from Shared.Utils.stealth_typing import StealthTyper
 from Warmup.scroller import run_warmup_for_account
@@ -43,8 +43,7 @@ class InstagramLoginHandler:
         popup_handler: PopupHandler,
         airtable_client: Optional[AirtableClient] = None,
         record_id: Optional[str] = None,
-        base_id: Optional[str] = None,
-        table_id: Optional[str] = None,
+        # base_id and table_id are no longer needed here
     ):
         self.d = device
         self.interactions = interactions
@@ -54,9 +53,10 @@ class InstagramLoginHandler:
         self.logger = setup_logger(self.__class__.__name__)
         self.airtable_client = airtable_client
         self.record_id = record_id
-        if airtable_client and base_id and table_id:
-            airtable_client.base_id = base_id
-            airtable_client.table_id = table_id
+        # This block is no longer needed
+        # if airtable_client and base_id and table_id:
+        #     airtable_client.base_id = base_id
+        #     airtable_client.table_id = table_id
         self.package_name = self.interactions.app_package
         self.current_username: Optional[str] = None
         self.logger.debug(f"Initialized Login Handler for package: {self.package_name}")
@@ -174,10 +174,13 @@ class InstagramLoginHandler:
         )
         return "unknown"
 
+    # In Login/login_bot.py
+
     def handle_2fa(self, email_address: str, email_password: str) -> str:
-        """Handles the 2FA process by fetching a code via IMAP and submitting it."""
+        """Handles the 2FA process by fetching a code, focusing the input, and typing with StealthTyper."""
         self.logger.info("--- Starting 2FA Handling Process ---")
 
+        # --- (Code fetching logic remains the same) ---
         verification_code = None
         max_retries = 5
         retry_delay = 15
@@ -193,35 +196,39 @@ class InstagramLoginHandler:
                 self.logger.info("✅ Code found!")
                 verification_code = code
                 break
-
             self.logger.warning(
                 f"Code not found. Waiting {retry_delay} seconds before retrying..."
             )
             time.sleep(retry_delay)
 
         if not verification_code:
+            self.logger.error("❌ Failed to retrieve 2FA code after all attempts.")
+            return "2fa_failed"
+
+        self.logger.info(f"✅ Successfully retrieved 2FA code: {verification_code}")
+
+        # --- START: REVISED LOGIC USING STEALTH TYPER ---
+        self.logger.info("Entering the 6-digit code using StealthTyper...")
+
+        # 1. Find and click the input field to give it focus. THIS IS THE KEY STEP.
+        if not self.interactions.click_by_xpath(
+            self.xpaths.two_fa_code_input, timeout=10
+        ):
             self.logger.error(
-                "❌ Failed to retrieve 2FA code via IMAP after all attempts."
+                "❌ Could not find or click the 2FA input field to focus it."
             )
             return "2fa_failed"
 
-        # If code was retrieved successfully
-        self.logger.info(f"✅ Successfully retrieved 2FA code: {verification_code}")
+        self.logger.info("✅ 2FA input field clicked and focused.")
+        time.sleep(0.5)  # Small delay to ensure focus is set
 
-        if not self.interactions.wait_for_element_appear(
-            self.xpaths.two_fa_code_input, timeout=10
-        ):
-            self.logger.error("Could not find the 2FA code input field on screen.")
-            return "2fa_failed"
-
-        self.logger.info("Entering the 6-digit code...")
-        self.interactions.click_by_xpath(self.xpaths.two_fa_code_input)
-        time.sleep(0.5)
-        self.d.clear_text()
-        time.sleep(0.3)
+        # 2. Use your existing StealthTyper to type the code into the now-focused field.
         self.typer.type_text(verification_code)
-        time.sleep(1)
+        time.sleep(1)  # Wait for the UI to process the input and enable the button.
 
+        # --- END: REVISED LOGIC ---
+
+        # 3. Click the confirmation button, which should now be enabled.
         if self.interactions.click_by_xpath(
             self.xpaths.two_fa_confirm_button, timeout=5
         ):
@@ -268,8 +275,13 @@ class InstagramLoginHandler:
         """Helper to update Airtable with the current status."""
         if not (self.airtable_client and self.record_id):
             return
+
         try:
-            self.airtable_client.update_record_fields(self.record_id, status_map)
+            # The new update_record method requires the table object
+            accounts_table = self.airtable_client.accounts_table
+            self.airtable_client.update_record(
+                accounts_table, self.record_id, status_map
+            )
             self.logger.info(
                 f"✅ Airtable record {self.record_id} updated: {status_map}"
             )
@@ -277,31 +289,38 @@ class InstagramLoginHandler:
             self.logger.error(f"❌ Airtable update failed: {e}")
 
 
-# --- Main Execution Block ---
 if __name__ == "__main__":
     module_logger.info("--- Main LoginBot Script Started ---")
-
-    BASE_ID = os.getenv("IG_ARMY_BASE_ID")
-    TABLE_ID = os.getenv("IG_ARMY_ACCS_TABLE_ID")
 
     d, popup_handler, login_handler = None, None, None
     login_result = "not_run"
     account_data = None
+    airtable_client = None  # Define here for access in finally block
 
     try:
         airtable_client = AirtableClient()
-        accounts_to_process = airtable_client.fetch_unused_accounts(max_records=1)
-        if not accounts_to_process:
-            module_logger.error("❌ No unused accounts found. Exiting.")
-            sys.exit(1)
-        account_data = accounts_to_process[0]
+        # Call the new fetch_and_claim function
+        account_data = airtable_client.fetch_and_claim_account_for_login()
 
-        DEVICE_ID = (account_data.get("device_id") or [""])[0].strip()
-        PACKAGE_NAME = (account_data.get("package_name") or [""])[0].strip()
+        if not account_data:
+            module_logger.error("❌ No unused accounts available to claim. Exiting.")
+            sys.exit(1)
+
+        # Data unpacking is now much simpler
+        DEVICE_ID = account_data.get("device_id")
+        PACKAGE_NAME = account_data.get("package_name")
+
         if not DEVICE_ID or not PACKAGE_NAME:
             module_logger.error(
                 "❌ Account missing device_id or package_name. Exiting."
             )
+            # Commented out for testing, but should be used to release the claimed account
+            # if airtable_client:
+            #     airtable_client.update_record(
+            #         airtable_client.accounts_table,
+            #         account_data["record_id"],
+            #         {"Status": "Missing Device/Package Info"},
+            #     )
             sys.exit(1)
 
         module_logger.info(
@@ -312,8 +331,9 @@ if __name__ == "__main__":
         rotate_nordvpn_ip(d)
 
         popup_handler = PopupHandler(driver=d)
+        # Context no longer needs base_id or table_id
         popup_handler.set_context(
-            airtable_client, account_data["record_id"], PACKAGE_NAME, BASE_ID, TABLE_ID
+            airtable_client, account_data["record_id"], PACKAGE_NAME, None, None
         )
         popup_handler.register_and_start_watchers()
 
@@ -322,6 +342,8 @@ if __name__ == "__main__":
 
         interactions = InstagramInteractions(device=d, app_package=PACKAGE_NAME)
         typer = StealthTyper(device=d)
+
+        # Initializing the handler is now simpler
         login_handler = InstagramLoginHandler(
             device=d,
             interactions=interactions,
@@ -329,10 +351,10 @@ if __name__ == "__main__":
             popup_handler=popup_handler,
             airtable_client=airtable_client,
             record_id=account_data["record_id"],
-            base_id=BASE_ID,
-            table_id=TABLE_ID,
         )
 
+        # Call execute_login with only the required credentials
+        # Email credentials are still fetched in case they are needed for 2FA
         login_result = login_handler.execute_login(
             username=account_data["instagram_username"],
             password=account_data["instagram_password"],
@@ -356,19 +378,29 @@ if __name__ == "__main__":
             module_logger.error(
                 f"Login failed with status: {login_result.upper()}. Skipping warmup."
             )
+            # This is the commented-out error handling you requested
+            # if airtable_client and account_data:
+            #     error_status = f"Login Failed - {login_result.upper()}"
+            #     login_handler._update_airtable_status({"Status": error_status})
 
     except Exception as e:
         module_logger.critical(
             f"💥 A critical error occurred in the main block: {e}", exc_info=True
         )
         login_result = "critical_error"
+        # And here for critical errors
+        # if airtable_client and account_data:
+        #     airtable_client.update_record(
+        #         airtable_client.accounts_table,
+        #         account_data["record_id"],
+        #         {"Status": "Critical Error"},
+        #     )
+
     finally:
         module_logger.info("--- Execution Finished ---")
         module_logger.info(f"Final Login Status: {login_result.upper()}")
 
         if popup_handler and login_result != "login_success":
             popup_handler.stop_watchers()
-            if d:
-                d.app_stop(PACKAGE_NAME)
 
         module_logger.info("--- Script Complete ---")

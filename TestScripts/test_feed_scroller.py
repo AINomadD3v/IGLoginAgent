@@ -68,7 +68,7 @@ def run_humanoid_scroller_test():
             logger.info(f"--- Scroll attempt {i + 1}/{SCROLL_TEST_COUNT} ---")
 
             # Call the new, proactive function and check its return value
-            scroll_performed = insta_actions.scroll_explore_feed_proactive()
+            scroll_performed = insta_actions.perform_human_swipe()
 
             if scroll_performed:
                 logger.info("✅ PASSED: Scroll was performed successfully.")

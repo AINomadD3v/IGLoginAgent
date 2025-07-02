@@ -16,7 +16,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 # --- Refactored Imports ---
-from Shared.config import XpathConfig  # Use new unified config
+from Shared.config import ScrollerConfig, XpathConfig  # Use new unified config
 from Shared.Utils.logger_config import setup_logger
 
 
@@ -60,6 +60,98 @@ class InstagramInteractions:
         duration_s = random.uniform(0.1, 0.25)
 
         self.device.swipe(start_x, start_y, end_x, end_y, duration=duration_s)
+
+    def perform_human_swipe(
+        self,
+        duration_s: float = 0.2,  # FINAL CHANGE: Faster duration to shorten the tail-off
+    ):
+        """
+        Executes the definitive "buttery smooth" swipe, optimized for a high-
+        resolution path and a perfect ease-out velocity curve.
+
+        This function uses a 60-step Bezier path to ensure the initial high-speed
+        movement is rendered as a smooth blur of motion, not a jump. A quartic
+        ease-out function provides a professional-grade deceleration that feels
+        natural and fluid from start to finish.
+
+        Args:
+            duration_s (float): The total time for the swipe gesture in seconds.
+        """
+        self.logger.info(
+            "🌀 Performing the definitive 'buttery smooth' swipe (faster)..."
+        )
+
+        # 1. Screen Dimensions
+        width, height = self.device.window_size()
+
+        # 2. Define the path using a Bezier curve for an organic shape
+        start_point = (
+            random.uniform(width * 0.45, width * 0.55),
+            random.uniform(height * 0.75, height * 0.85),
+        )
+        end_point = (
+            random.uniform(width * 0.45, width * 0.55),
+            random.uniform(height * 0.2, height * 0.3),
+        )
+        control_point = (
+            (start_point[0] + end_point[0]) / 2
+            + random.uniform(-width * 0.1, width * 0.1),
+            (start_point[1] + end_point[1]) / 2,
+        )
+
+        # 3. Generate the High-Resolution Path with a Quartic Ease-Out Curve
+        path = []
+        seen_points = set()
+        total_steps = 60  # Keep the high-resolution path for smoothness
+
+        for i in range(total_steps + 1):
+            linear_progress = i / total_steps
+
+            # --- Quartic Ease-Out function is preserved for the smooth deceleration ---
+            eased_progress = 1 - (1 - linear_progress) ** 4
+
+            # Calculate the point on the Bezier curve using the EASED progress
+            t = eased_progress
+            x = (
+                (1 - t) ** 2 * start_point[0]
+                + 2 * (1 - t) * t * control_point[0]
+                + t**2 * end_point[0]
+            )
+            y = (
+                (1 - t) ** 2 * start_point[1]
+                + 2 * (1 - t) * t * control_point[1]
+                + t**2 * end_point[1]
+            )
+
+            point = (int(x), int(y))
+            if point not in seen_points:
+                path.append(point)
+                seen_points.add(point)
+
+        if len(path) < 3:
+            self.logger.warning("Swipe path too short. Aborting.")
+            return
+
+        # 4. Execute with the proven, dynamically timed loop
+        x0, y0 = path[0]
+        self.device.touch.down(x0, y0)
+
+        start_time = time.time()
+        interval = duration_s / len(path)
+
+        for i, (x, y) in enumerate(path[1:], 1):
+            expected_time = start_time + i * interval
+            self.device.touch.move(x, y)
+            sleep_duration = expected_time - time.time()
+            if sleep_duration > 0:
+                time.sleep(sleep_duration)
+
+        xf, yf = path[-1]
+        self.device.touch.up(xf, yf)
+
+        self.logger.info(
+            f"✅ 'Buttery smooth' swipe complete in ~{time.time() - start_time:.2f}s."
+        )
 
     def close_app(self) -> bool:
         """Stops the app cleanly, with a fallback to ADB force-stop."""
@@ -111,7 +203,7 @@ class InstagramInteractions:
         """
         self.logger.debug("Checking current view state...")
 
-        # Priority 1: Check for the most specific overlays first (Comments, Peek View).
+        # Priority 1: Check for the most specific overlays first.
         if self.element_exists(self.xpath_config.reel_comment_input_field):
             self.logger.debug("State detected: IN_COMMENTS_VIEW")
             return "IN_COMMENTS_VIEW"
@@ -120,17 +212,23 @@ class InstagramInteractions:
             self.logger.debug("State detected: IN_PEEK_VIEW")
             return "IN_PEEK_VIEW"
 
-        # Priority 2: Check for the full Reel viewer.
+        # --- NEW STATE CHECK ---
+        # Priority 2: Check for the Likes/Viewers page before the general reel view.
+        if self.element_exists(self.xpath_config.likes_page_title):
+            self.logger.debug("State detected: ON_LIKES_PAGE")
+            return "ON_LIKES_PAGE"
+
+        # Priority 3: Check for the full Reel viewer.
         if self.element_exists(self.xpath_config.reel_like_or_unlike_button):
             self.logger.debug("State detected: IN_REEL")
             return "IN_REEL"
 
-        # Priority 3: Check if we're on the search results grid.
+        # Priority 4: Check if we're on the search results grid.
         if self.element_exists(self.xpath_config.explore_search_bar):
             self.logger.debug("State detected: ON_EXPLORE_GRID")
             return "ON_EXPLORE_GRID"
 
-        # Priority 4: Check if we've returned to the main home feed.
+        # Priority 5: Check if we've returned to the main home feed.
         if self.element_exists(self.xpath_config.home_feed_identifier):
             self.logger.debug("State detected: ON_HOME_FEED")
             return "ON_HOME_FEED"
@@ -226,7 +324,7 @@ class InstagramInteractions:
             return False
         try:
             # Call the new, reliable internal flick method.
-            self._scroll_feed_flick()
+            self.perform_human_swipe()
             return True
         except Exception as e:
             self.logger.error(
@@ -234,6 +332,14 @@ class InstagramInteractions:
                 exc_info=True,
             )
             return False
+
+    def scroll_in_comments_view(self, scrolls: int = 1):
+        """Performs a random number of scroll flicks within the comments view."""
+        self.logger.info(f"🌀 Scrolling in comments view {scrolls} time(s)...")
+        for i in range(scrolls):
+            # We can reuse the same well-tuned flick gesture from the parent class.
+            self.perform_human_swipe()
+            time.sleep(random.uniform(0.8, 1.5))
 
     def _tap_random_in_bounds(
         self, bounds: dict, label: str = "element", offset: int = 8
@@ -293,105 +399,145 @@ class InstagramInteractions:
                 x = random.randint(int(width * 0.4), int(width * 0.6))
                 y = random.randint(int(height * 0.4), int(height * 0.6))
                 self.device.click(x, y)
-            elif action == "mini_scrub":
-                x_start = random.randint(int(width * 0.3), int(width * 0.5))
-                y = random.randint(int(height * 0.6), int(height * 0.8))
-                offset = random.randint(40, 90) * random.choice([-1, 1])
-                self.device.swipe(x_start, y, x_start + offset, y, duration=0.1)
+            # elif action == "mini_scrub":
+            #     x_start = random.randint(int(width * 0.3), int(width * 0.5))
+            #     y = random.randint(int(height * 0.6), int(height * 0.8))
+            #     offset = random.randint(40, 90) * random.choice([-1, 1])
+            #     self.device.swipe(x_start, y, x_start + offset, y, duration=0.1)
         except Exception as e:
             self.logger.error(
                 f"Error during light interaction '{action}': {e}", exc_info=True
             )
 
     def like_current_post_or_reel(self) -> bool:
-        """Likes the currently viewed post or reel by tapping the like button."""
+        """
+        Likes the currently viewed post or reel and verifies the action
+        by checking the button's 'selected' state.
+        """
         self.logger.info("Attempting to like current post/reel...")
-        like_xpath = self.xpath_config.reel_likes_button
+        like_xpath = self.xpath_config.reel_like_or_unlike_button
 
-        # Tap the like button area
-        if not self.tap_random_within_element(
-            like_xpath, label="Like Button", timeout=3
-        ):
+        # Get the button element before tapping to check its initial state
+        like_button_element = self.device.xpath(like_xpath).get(timeout=3)
+
+        if not like_button_element:
             self.logger.warning(f"Like button not found via XPath: {like_xpath}")
             return False
 
-        time.sleep(random.uniform(0.8, 1.3))
+        # If it's already liked, no need to do anything.
+        if like_button_element.info.get("selected") is True:
+            self.logger.info("☑️ Post is already liked, skipping.")
+            return True
 
-        # Verify the button state changed to 'Unlike'
-        if self.element_exists(
-            self.xpath_config.reel_like_or_unlike_button.replace('"Like"', '"Unlike"')
-        ):
-            self.logger.info("❤️ Like successful and verified.")
+        # Tap the like button area
+        self.logger.info(f"👆 Tapping Like Button...")
+        like_button_element.click()
+        time.sleep(random.uniform(1.2, 1.7))
+
+        # --- New Verification Logic ---
+        # Re-fetch the element to check its new state.
+        verify_element = self.device.xpath(like_xpath).get()
+
+        # Check if the 'selected' attribute is now 'true'.
+        if verify_element and verify_element.info.get("selected") is True:
+            self.logger.info("❤️ Like successful and verified by 'selected' state.")
             return True
         else:
             self.logger.warning(
-                "⚠️ Like button clicked, but state did not change to 'Unlike'."
+                "⚠️ Like button clicked, but its 'selected' state did not change to true."
             )
             return False
 
     def simulate_open_close_comments(self) -> bool:
-        """Simulates opening the comment section, scrolling slightly, and closing it."""
+        """
+        Simulates opening the comment section, scrolling, probabilistically liking
+        a comment, and then closing the section.
+        """
         self.logger.info("💬 Simulating opening/closing comments...")
         comment_xpath = self.xpath_config.reel_comment_button
 
         if not self.tap_random_within_element(
             comment_xpath, label="Comment Button", timeout=5
         ):
-            self.logger.warning("Failed to tap comment button.")
+            self.logger.warning("Failed to tap comment button to open comments.")
             return False
 
-        time.sleep(random.uniform(1.5, 2.5))
+        # Wait for the comments section to load
+        if not self.wait_for_element_appear(
+            self.xpath_config.reel_comment_input_field, timeout=5
+        ):
+            self.logger.warning("Comments view did not open successfully after tap.")
+            self.device.press("back")
+            return False
 
-        # Scroll up slightly in the comments
-        self.scroll_explore_feed_proactive()
-        time.sleep(random.uniform(1.0, 2.0))
+        # Scroll 1 to 3 times to simulate reading
+        scroll_count = random.randint(1, 3)
+        self.scroll_in_comments_view(scrolls=scroll_count)
 
+        # --- NEW: Probabilistically Like a Comment ---
+        if random.random() < ScrollerConfig.LIKE_COMMENT_PROBABILITY:
+            self.logger.info("Attempting to like a random comment...")
+
+            # Find all available like buttons for comments that haven't been liked yet.
+            # Based on the UI dump, these have a very specific content-desc.
+            comment_like_xpath = (
+                "//android.view.ViewGroup[@content-desc='Tap to like comment']"
+            )
+            comment_like_buttons = self.device.xpath(comment_like_xpath).all()
+
+            if comment_like_buttons:
+                # Choose one random comment to like
+                target_comment = random.choice(comment_like_buttons)
+                self.logger.info("❤️  Liking a random comment.")
+                target_comment.click()
+                time.sleep(random.uniform(1.0, 2.0))  # Pause briefly after liking
+            else:
+                self.logger.info(
+                    "No un-liked comments found on screen to interact with."
+                )
+
+        # --- Exit the comments view ---
         self.logger.debug("Pressing back to close comments.")
         self.device.press("back")
         time.sleep(random.uniform(0.8, 1.2))
 
-        if self.element_exists(comment_xpath):
+        # Verify we are back in the reel view
+        if self.wait_for_element_appear(comment_xpath, timeout=5):
             self.logger.info("✅ Comment simulation complete.")
             return True
         else:
-            self.logger.warning("⚠️ Comment button not visible after closing.")
-            # Attempt one more back press as a recovery measure
+            self.logger.warning(
+                "⚠️ Failed to navigate back to the reel after closing comments."
+            )
             self.device.press("back")
             return False
 
     def ensure_back_to_explore_grid(self) -> bool:
         """
         A robust navigation function that attempts to return to the explore grid
-        from any known state (Reel, Comments, etc.). It will press 'back'
-        until it verifies it has landed on the explore grid.
-        This function is designed to be the definitive way to exit nested views.
+        from any known state, with clearer logging.
         """
-        self.logger.info("Ensuring navigation back to the explore grid...")
+        self.logger.info("Verifying navigation is at the explore grid...")
 
         # We will try up to 4 times to get back. This prevents an infinite loop.
         for attempt in range(4):
-            # First, check what screen we're on
             current_state = self.get_current_view_state()
 
-            # If we are on the correct screen, our job is done.
             if current_state == "ON_EXPLORE_GRID":
-                self.logger.info("✅ Successfully navigated back to the explore grid.")
+                self.logger.info("✅ Successfully confirmed location: explore grid.")
                 return True
 
-            # If we are not on the correct screen, log where we are and press back.
+            # If we are not on the correct screen, log the action and press back.
             self.logger.warning(
-                f"Not on explore grid (currently: {current_state}). Pressing back... (Attempt {attempt + 1}/4)"
+                f"Not on explore grid (currently: {current_state}). Pressing back to navigate... (Attempt {attempt + 1}/4)"
             )
 
             # Use the explicit back button if available, otherwise use the system back.
-            # This is more robust than only using the system back press.
             if not self.click_by_xpath(self.xpath_config.nav_back_button, timeout=1):
                 self.device.press("back")
 
-            # Wait for the UI to settle after the action
             time.sleep(random.uniform(1.5, 2.2))
 
-        # If the loop finishes without returning, it means we failed to get back.
         self.logger.error(
             "❌ Failed to navigate back to explore grid after multiple attempts."
         )

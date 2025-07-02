@@ -113,19 +113,14 @@ def extract_search_page_reels(insta_actions: InstagramInteractions) -> list[dict
 def process_reel(
     insta_actions: InstagramInteractions, reel_post: dict
 ) -> Optional[dict]:
-    """Processes a single reel: watches, interacts, and extracts data."""
+    """Processes a single reel: watches, interacts, and then performs a single
+    back press to exit the reel view."""
     # Get config values directly from the ScrollerConfig class
     full_watch_time = random.uniform(*ScrollerConfig.WATCH_TIME_RANGE)
     like_probability = ScrollerConfig.LIKE_PROBABILITY
     comment_probability = ScrollerConfig.COMMENT_PROBABILITY
 
     like_delay = random.uniform(1.2, max(1.3, full_watch_time - 0.5))
-    interaction_times = sorted(
-        random.sample(
-            [random.uniform(1.0, max(1.1, full_watch_time - 0.2)) for _ in range(3)],
-            k=2,
-        )
-    )
 
     logger.info(
         f"⏱️ Watching reel [{reel_post.get('short_id', 'N/A')}] for {full_watch_time:.2f}s"
@@ -146,25 +141,17 @@ def process_reel(
     end_time = start_time + full_watch_time
     liked = False
     commented = False
+    should_like = random.random() < like_probability
     should_comment = random.random() < comment_probability
-    next_interaction_time = interaction_times.pop(0) if interaction_times else None
 
     while time.time() < end_time:
         elapsed = time.time() - start_time
 
-        if next_interaction_time and elapsed >= next_interaction_time:
-            insta_actions.perform_light_interaction()
-            next_interaction_time = (
-                interaction_times.pop(0) if interaction_times else None
-            )
-
-        if not liked and elapsed >= like_delay:
-            if random.random() < like_probability:
-                if insta_actions.like_current_post_or_reel():
-                    random_delay("after_like")
-                    liked = True
-            # Set delay to infinity to ensure we only try once
-            like_delay = float("inf")
+        if not liked and should_like and elapsed >= like_delay:
+            if insta_actions.like_current_post_or_reel():
+                random_delay("after_like")
+                liked = True
+            should_like = False  # Ensure we only try once
 
         if not commented and should_comment and elapsed >= full_watch_time * 0.6:
             if insta_actions.simulate_open_close_comments():
@@ -172,14 +159,13 @@ def process_reel(
                 commented = True
             should_comment = False
 
-        time.sleep(0.2)
+        time.sleep(0.2)  # Standard sleep while watching
 
-    # --- Exit Reel View ---
-    verify_xpath = insta_actions.xpath_config.reel_like_or_unlike_button
-    insta_actions.ensure_back_to_explore_grid()
+    # --- Exit the reel view with a simple, direct back press ---
+    logger.info("Reel watch time complete. Pressing back to exit reel view.")
+    insta_actions.device.press("back")
     random_delay("back_delay")
 
-    # This functionality to return data is preserved, even if not used in the main loop
     return {"liked": liked, "commented": commented}
 
 
@@ -277,6 +263,15 @@ def run_warmup_session(insta_actions: InstagramInteractions):
             random_delay("back_delay")
             continue
 
+        # --- ADD THIS NEW BLOCK ---
+        elif current_state == "ON_LIKES_PAGE":
+            logger.warning(
+                "❤️ State check: Accidentally landed on the 'Likes' page. Pressing back to recover."
+            )
+            insta_actions.device.press("back")
+            random_delay("back_delay")
+            continue
+
         elif current_state == "IN_REEL":
             logger.warning(
                 "🚨 State check: Detected we are inside a reel unexpectedly. Navigating back."
@@ -342,9 +337,9 @@ def run_warmup_session(insta_actions: InstagramInteractions):
                 actions_since_idle = 0
                 next_idle_at = random.randint(idle_min, idle_max)
 
-        random_delay("before_scroll")
-        insta_actions.scroll_explore_feed_proactive()
-        random_delay("between_scrolls")
+        # --- IMPROVEMENT: Use the new hesitation scroll for a reliable swipe ---
+        logger.info("Finished processing reels on screen.")
+        insta_actions.perform_human_swipe()
 
     # --- Session End Summary ---
     duration = time.time() - start_time

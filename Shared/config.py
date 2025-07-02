@@ -31,6 +31,7 @@ class ScrollerConfig:
     WATCH_TIME_RANGE = [4.0, 9.0]
     LIKE_PROBABILITY = 0.7
     COMMENT_PROBABILITY = 0.25
+    LIKE_COMMENT_PROBABILITY = 0.3
     IDLE_AFTER_ACTIONS_RANGE = [3, 6]
     IDLE_DURATION_RANGE = [2, 6]
 
@@ -167,11 +168,14 @@ class XpathConfig:
 
     @property
     def two_fa_code_input(self):
-        return "//*[starts-with(@text, 'Enter') and contains(@text, 'code')]"
+        # From the UI dump, the input field is the only EditText on the screen.
+        # This is the most direct and reliable selector.
+        return "//android.widget.EditText"
 
     @property
     def two_fa_confirm_button(self):
-        return "//*[contains(@text, 'Continue') or contains(@text, 'Confirm')]"
+        # From the UI dump, the button is identified by its content-description.
+        return "//android.widget.Button[@content-desc='Continue']"
 
     @property
     def account_suspended_text(self):
@@ -259,10 +263,6 @@ class XpathConfig:
         return f"//*[@resource-id='{self.package_name}:id/clips_caption_component']"
 
     @property
-    def reel_likes_button(self):
-        return "//*[contains(@content-desc, 'likes')]"
-
-    @property
     def reel_comment_button(self):
         return '//*[contains(@content-desc, "Comment")]'
 
@@ -287,3 +287,8 @@ class XpathConfig:
         return (
             f"//*[@resource-id='{self.package_name}:id/layout_comment_thread_edittext']"
         )
+
+    @property
+    def likes_page_title(self):
+        """Identifier for the screen that lists users who liked a post."""
+        return "//android.widget.TextView[@text='Views & likes']"
