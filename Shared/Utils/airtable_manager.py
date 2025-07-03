@@ -139,6 +139,65 @@ class AirtableClient:
 
         return account_data
 
+    def fetch_and_claim_account_for_device(
+        self, device_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Finds a ready-to-use account for a specific device, atomically claims it
+        by updating its status, and returns the processed account data.
+        """
+        logger.info(
+            f"Attempting to fetch and claim an account for device '{device_id}'..."
+        )
+
+        # This formula now ALSO includes 'Assigned' as a valid status.
+        ready_status_formula = "OR({Status} = 'Assigned', {Status} = 'Ready for Login', {Status} = 'Unused')"
+        formula = f"AND({{Device ID}} = '{device_id}', {ready_status_formula})"
+
+        # The status to set immediately after claiming the account.
+        claim_status = "Login In Progress"
+
+        try:
+            potential_accounts: Sequence[Dict[str, Any]] = self.accounts_table.all(
+                formula=formula,
+                max_records=5,
+            )
+
+            if not potential_accounts:
+                logger.warning(
+                    f"No available accounts found for device '{device_id}' with a ready status."
+                )
+                return None
+
+            for record in potential_accounts:
+                record_id = record.get("id")
+                if not isinstance(record_id, str):
+                    continue  # Skip invalid records
+
+                try:
+                    self.update_record(
+                        self.accounts_table, record_id, {"Status": claim_status}
+                    )
+                    logger.info(
+                        f"✅ Successfully claimed record {record_id} for device {device_id}."
+                    )
+                    # Use your existing processing function to ensure data is consistent.
+                    return self._process_login_record(record)
+                except HTTPError:
+                    logger.warning(
+                        f"Failed to claim record {record_id} (likely claimed by another process)."
+                    )
+                    continue
+
+        except Exception as e:
+            logger.error(
+                f"❌ An unexpected error occurred while fetching account for device {device_id}: {e}",
+                exc_info=True,
+            )
+
+        logger.error(f"Could not claim any available account for device {device_id}.")
+        return None
+
     def fetch_and_claim_account_for_login(self) -> Optional[Dict[str, Any]]:
         """
         Fetches an account from the 'Unused Accounts' view and atomically claims it.
@@ -181,6 +240,40 @@ class AirtableClient:
             )
 
         return None
+
+    def get_devices_with_ready_accounts(self) -> set[str]:
+        """
+        Scans the Airtable base and returns a unique set of Device IDs
+        that have at least one account marked as ready for login.
+        """
+        logger.info("Querying Airtable for devices with ready accounts...")
+
+        # This formula now includes 'Assigned' as a valid status to start a login task.
+        formula = "OR({Status} = 'Assigned', {Status} = 'Ready for Login', {Status} = 'Unused')"
+
+        ready_device_ids = set()
+        try:
+            # Fetch all records that match the formula
+            records = self.accounts_table.all(formula=formula)
+
+            for record in records:
+                # The _flatten_field helper handles cases where the field might be a list
+                device_id = self._flatten_field(
+                    record.get("fields", {}).get("Device ID")
+                )
+                if device_id:
+                    ready_device_ids.add(device_id)
+
+            logger.info(
+                f"Found {len(ready_device_ids)} devices with ready accounts in Airtable."
+            )
+            return ready_device_ids
+
+        except Exception as e:
+            logger.error(
+                f"Failed to query Airtable for available devices: {e}", exc_info=True
+            )
+            return set()  # Return an empty set on error
 
     def fetch_account_for_warmup(self) -> Optional[Dict[str, Any]]:
         """

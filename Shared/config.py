@@ -70,6 +70,11 @@ class PopupConfig:
             "text_xpath": "//*[contains(@text, 'contacts') and contains(@text, 'people to follow')]",
             "button_xpath": "//*[@content-desc='Skip' or @text='Skip']",
         },
+        {
+            "name": "join_instagram",
+            "text_xpath": "//*[@content-desc='Join Instagram']",
+            "button_xpath": "//*[@content-desc='I already have an account']",
+        },
         # --- Account Status/Warning Popups ---
         {
             "name": "account_suspended_popup",
@@ -114,6 +119,16 @@ class PopupConfig:
             "name": "samsung_pass_autofill",
             "text_xpath": "//*[@resource-id='android:id/autofill_save_icon']",
             "button_xpath": "//*[@resource-id='android:id/autofill_save_no']",
+        },
+        {
+            "name": "location_services",
+            "text_xpath": "//*[@content-desc='To use Location services, allow Instagram to access your location']",
+            "button_xpath": "//*[@content-desc='Continue']",
+        },
+        {
+            "name": "location_settings_popup",
+            "text_xpath": "//*[contains(@text, 'your device settings')]",
+            "button_xpath": "//*[@content-desc='Cancel' or @text='Cancel']",
         },
         # --- VPN/External App Popups ---
         {

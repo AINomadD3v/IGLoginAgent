@@ -53,10 +53,6 @@ class InstagramLoginHandler:
         self.logger = setup_logger(self.__class__.__name__)
         self.airtable_client = airtable_client
         self.record_id = record_id
-        # This block is no longer needed
-        # if airtable_client and base_id and table_id:
-        #     airtable_client.base_id = base_id
-        #     airtable_client.table_id = table_id
         self.package_name = self.interactions.app_package
         self.current_username: Optional[str] = None
         self.logger.debug(f"Initialized Login Handler for package: {self.package_name}")
@@ -290,48 +286,66 @@ class InstagramLoginHandler:
 
 
 if __name__ == "__main__":
-    module_logger.info("--- Main LoginBot Script Started ---")
+    # 1. Add argument parsing to receive the device ID from the orchestrator
+    import argparse
 
-    d, popup_handler, login_handler = None, None, None
-    login_result = "not_run"
+    parser = argparse.ArgumentParser(description="Instagram Login Bot Worker")
+    parser.add_argument(
+        "--device-id", required=True, help="The ADB serial ID of the target device."
+    )
+    args = parser.parse_args()
+    DEVICE_ID = args.device_id
+
+    # Setup initial variables
+    module_logger.info(f"--- Main LoginBot Script Started for Device: {DEVICE_ID} ---")
+    airtable_client = None
+    popup_handler = None
     account_data = None
-    airtable_client = None  # Define here for access in finally block
+    login_result = "not_run"
 
     try:
+        # Initialize the Airtable client
         airtable_client = AirtableClient()
-        # Call the new fetch_and_claim function
-        account_data = airtable_client.fetch_and_claim_account_for_login()
 
-        if not account_data:
-            module_logger.error("❌ No unused accounts available to claim. Exiting.")
-            sys.exit(1)
-
-        # Data unpacking is now much simpler
-        DEVICE_ID = account_data.get("device_id")
-        PACKAGE_NAME = account_data.get("package_name")
-
-        if not DEVICE_ID or not PACKAGE_NAME:
-            module_logger.error(
-                "❌ Account missing device_id or package_name. Exiting."
-            )
-            # Commented out for testing, but should be used to release the claimed account
-            # if airtable_client:
-            #     airtable_client.update_record(
-            #         airtable_client.accounts_table,
-            #         account_data["record_id"],
-            #         {"Status": "Missing Device/Package Info"},
-            #     )
-            sys.exit(1)
-
+        # 2. Call the NEW function to get an account for THIS SPECIFIC DEVICE
         module_logger.info(
-            f"✅ Processing: {account_data['instagram_username']} on {DEVICE_ID}"
+            f"Attempting to claim an account for device '{DEVICE_ID}'..."
         )
+        account_data = airtable_client.fetch_and_claim_account_for_device(DEVICE_ID)
 
+        # Exit gracefully if no account could be claimed for this device
+        if not account_data:
+            module_logger.error(
+                f"❌ No unused accounts available in Airtable for device {DEVICE_ID}. Worker exiting."
+            )
+            sys.exit(1)  # Exit with a non-zero code to indicate an issue
+
+        # 3. Unpack data (DEVICE_ID is already known)
+        PACKAGE_NAME = account_data.get("package_name")
+        USERNAME = account_data.get("instagram_username")
+
+        # Validate that we have the essential info from Airtable
+        if not PACKAGE_NAME or not USERNAME:
+            error_msg = (
+                "❌ Account data from Airtable is missing 'package_name' or 'Account'."
+            )
+            module_logger.error(error_msg)
+            # Update the record to reflect the error so it can be fixed
+            if airtable_client:
+                airtable_client.update_record(
+                    airtable_client.accounts_table,
+                    account_data["record_id"],
+                    {"Status": "Error - Missing Info"},
+                )
+            sys.exit(1)
+
+        module_logger.info(f"✅ Claimed Account: '{USERNAME}' on Device: {DEVICE_ID}")
+
+        # Connect to the device and perform setup
         d = u2.connect(DEVICE_ID)
         rotate_nordvpn_ip(d)
 
         popup_handler = PopupHandler(driver=d)
-        # Context no longer needs base_id or table_id
         popup_handler.set_context(
             airtable_client, account_data["record_id"], PACKAGE_NAME, None, None
         )
@@ -340,10 +354,9 @@ if __name__ == "__main__":
         d.app_start(PACKAGE_NAME, stop=True)
         time.sleep(5)
 
+        # Initialize action handlers
         interactions = InstagramInteractions(device=d, app_package=PACKAGE_NAME)
         typer = StealthTyper(device=d)
-
-        # Initializing the handler is now simpler
         login_handler = InstagramLoginHandler(
             device=d,
             interactions=interactions,
@@ -353,54 +366,55 @@ if __name__ == "__main__":
             record_id=account_data["record_id"],
         )
 
-        # Call execute_login with only the required credentials
-        # Email credentials are still fetched in case they are needed for 2FA
+        # Execute the main login flow
         login_result = login_handler.execute_login(
-            username=account_data["instagram_username"],
+            username=USERNAME,
             password=account_data["instagram_password"],
             email_address=account_data["email_address"],
             email_password=account_data["email_password"],
         )
 
+        # If login is successful, proceed to the warmup phase
         if login_result == "login_success":
             module_logger.info(
                 "✅ Login successful. Handing over to Warmup Scroller..."
             )
             try:
                 run_warmup_for_account(
-                    username=account_data["instagram_username"],
+                    username=USERNAME,
                     device_id=DEVICE_ID,
                     package_name=PACKAGE_NAME,
                 )
             except Exception as e:
                 module_logger.error(f"💥 The warmup session failed: {e}", exc_info=True)
+                # Update status to show login worked but warmup failed
+                login_handler._update_airtable_status({"Status": "Warmup Failed"})
         else:
             module_logger.error(
                 f"Login failed with status: {login_result.upper()}. Skipping warmup."
             )
-            # This is the commented-out error handling you requested
-            # if airtable_client and account_data:
-            #     error_status = f"Login Failed - {login_result.upper()}"
-            #     login_handler._update_airtable_status({"Status": error_status})
+            # The status is already updated inside the login_handler for failures
 
     except Exception as e:
         module_logger.critical(
-            f"💥 A critical error occurred in the main block: {e}", exc_info=True
+            f"💥 A critical, unhandled error occurred in the main block for device {DEVICE_ID}: {e}",
+            exc_info=True,
         )
         login_result = "critical_error"
-        # And here for critical errors
-        # if airtable_client and account_data:
-        #     airtable_client.update_record(
-        #         airtable_client.accounts_table,
-        #         account_data["record_id"],
-        #         {"Status": "Critical Error"},
-        #     )
+        # If a critical error happens after an account was claimed, mark it in Airtable
+        if airtable_client and account_data:
+            airtable_client.update_record(
+                airtable_client.accounts_table,
+                account_data["record_id"],
+                {"Status": "Critical Error"},
+            )
 
     finally:
-        module_logger.info("--- Execution Finished ---")
+        module_logger.info(f"--- Execution Finished for Device: {DEVICE_ID} ---")
         module_logger.info(f"Final Login Status: {login_result.upper()}")
 
-        if popup_handler and login_result != "login_success":
+        # Stop watchers if they were started
+        if popup_handler:
             popup_handler.stop_watchers()
 
-        module_logger.info("--- Script Complete ---")
+        module_logger.info(f"--- Script Complete for Device: {DEVICE_ID} ---")

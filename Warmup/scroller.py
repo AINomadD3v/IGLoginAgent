@@ -20,6 +20,7 @@ if project_root not in sys.path:
 from Shared.config import ScrollerConfig
 from Shared.instagram_actions import InstagramInteractions
 from Shared.popup_handler import PopupHandler
+from Shared.Utils.airtable_manager import AirtableClient
 from Shared.Utils.logger_config import setup_logger
 from Shared.Utils.stealth_typing import StealthTyper
 
