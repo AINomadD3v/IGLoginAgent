@@ -108,5 +108,7 @@ current_ui_dump.xml
 
 # flake.lock should be committed, but if you want to ignore it:
 # flake.lock
+LegacyLoginTools/
+ScreenDumps/
 
 
